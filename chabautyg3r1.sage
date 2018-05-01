@@ -426,7 +426,7 @@ def chabauty_test(C,p,P,L,prec,n):
         if p1.degree() == 1:
             try:
                 OTP = C_old.change_ring(Lf).lift_x(QQ(A[0]))
-                if p2(OTP[1]) == 0 or p2(-OTP[1]) ==0:
+                if p2(OTP[1]) == 0 or p2(-OTP[1]) == 0:
                     OtherTorsPoints[i] = (QQ(A[0]),p2)
             except ValueError:
                 pass
@@ -436,7 +436,7 @@ def chabauty_test(C,p,P,L,prec,n):
                 OTP = C_old.change_ring(Lf).lift_x(par)
                 if p2(OTP[1]) == 0 or p2(-OTP[1]) ==0:
                     if p2.degree() == 1:
-                        OtherTorsPoints[i] = (p1,QQ(A[2]))
+                        OtherTorsPoints[i] = (p1,QQ(A[1]))
                     else:
                         OtherTorsPoints[i] = (p1,p2)
                 else:
@@ -452,7 +452,7 @@ def chabauty_test(C,p,P,L,prec,n):
         if p1.degree() == 1:
             try:
                 OTP = C_old.change_ring(Lf).lift_x(QQ(A[0]))
-                if p2(OTP[1]) == 0 or p2(-OTP[1]) ==0:
+                if p2(OTP[1]) == 0 or p2(-OTP[1]) == 0:
                     QuestionPoints[i] = (QQ(A[0]),p2)
             except ValueError:
                 pass
@@ -462,7 +462,7 @@ def chabauty_test(C,p,P,L,prec,n):
                 OTP = C_old.change_ring(Lf).lift_x(par)
                 if p2(OTP[1]) == 0 or p2(-OTP[1]) == 0:
                     if p2.degree() == 1:
-                        QuestionPoints[i] = (p1,QQ(A[2]))
+                        QuestionPoints[i] = (p1,QQ(A[1]))
                     else:
                         QuestionPoints[i] = (p1,p2)
                 else:
