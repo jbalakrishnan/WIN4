@@ -2,7 +2,7 @@
 Chabauty--Coleman method for hyperelliptic curves of genus 3, with Jacobian of rank 1.
 
 ------------
-The main function is chabauty_test(C,p,P,L,prec,n)
+The main function is chabauty_test(C,p,P,L,prec)
 
 INPUT:
 - C: a hyperelliptic curve of genus 3 over Q whose Jacobian J has rank 1;
@@ -11,8 +11,7 @@ INPUT:
       we recommend p >= 7.
 - P: a point in C(Q) such that [P-infty]\in J(Q) has infinite order.
 - L: a list of known rational points on C.
-- prec: working p-adic precision (recommended: 2*p+4)
-- n: working t-adic precision (recommended: 2*p+4)
+- prec: working p-adic precision.
 
 OUTPUT:
 - A list of all points in C(Q)\setminus L up to hyperelliptic involution.
@@ -36,9 +35,9 @@ sage: R.<x> = PolynomialRing(Rationals())
 sage: f = -4*x^7 - 11*x^6 + 22*x^5 + x^4 - 18*x^3 - 2*x^2 + 4*x + 1
 sage: C = HyperellipticCurve(f)
 sage: p = 7
-sage: prec = 2*p+4
+sage: prec = 10
 sage: P = C(0,-1)
-sage: a,b,c,d = chabauty_test(C,p,P,[],prec,prec)
+sage: a,b,c,d = chabauty_test(C,p,P,[],prec)
 sage: a
 [(-18/49 : -20689/823543 : 1), (0 : 1 : 1), (0 : 1 : 0)]
 
@@ -50,8 +49,8 @@ sage: C = HyperellipticCurve(f)
 sage: P = C(1,-2)
 sage: L = [C(0,1,0),P,C(0,0)]
 sage: p = 11
-sage: prec = 2*p + 4
-sage: a,b,c,d = chabauty_test(C,p,P,L,prec,prec)
+sage: prec = 10
+sage: a,b,c,d = chabauty_test(C,p,P,L,prec)
 sage: len(a)
 0
 sage: len(b)
@@ -64,7 +63,111 @@ sage: d
 
 ############## AUXILIARY FUNCTIONS ##############
 
-def ann_basis(C,P,p,prec):
+import sage.schemes.hyperelliptic_curves.monsky_washnitzer as monsky_washnitzer
+
+def coleman_integrals_on_basis(H, P, Q, inverse_frob, forms, algorithm=None):
+    """
+    Computes the Coleman integrals `\{\int_P^Q x^i dx/2y \}_{i=0}^{2g-1}`.
+    The only difference with the built-in function coleman_integrals_on_basis
+    is that we input the Frobenius data (inverse_frob, forms), which may
+    be computed as follows:
+
+    sage: import sage.schemes.hyperelliptic_curves.monsky_washnitzer as monsky_washnitzer
+    sage: K = H.base_ring()
+    sage: M_frob, forms = monsky_washnitzer.matrix_of_frobenius_hyperelliptic(H)
+    sage: forms = [form.change_ring(K) for form in forms]
+    sage: M_sys = matrix(K, M_frob).transpose() - 1
+    sage: inverse_frob = M_sys**(-1)
+    """
+    K = H.base_ring()
+    p = K.prime()
+    prec = K.precision_cap()
+    g = H.genus()
+    dim = 2*g
+    V = VectorSpace(K, dim)
+    #if P or Q is Weierstrass, use the Frobenius algorithm
+    if H.is_weierstrass(P):
+        if H.is_weierstrass(Q):
+            return V(0)
+        else:
+            PP = None
+            QQ = Q
+            TP = None
+            TQ = H.frobenius(Q)
+    elif H.is_weierstrass(Q):
+        PP = P
+        QQ = None
+        TQ = None
+        TP = H.frobenius(P)
+    elif H.is_same_disc(P,Q):
+        return H.tiny_integrals_on_basis(P,Q)
+    elif algorithm == 'teichmuller':
+        PP = TP = H.teichmuller(P)
+        QQ = TQ = H.teichmuller(Q)
+        evalP, evalQ = TP, TQ
+    else:
+        TP = H.frobenius(P)
+        TQ = H.frobenius(Q)
+        PP, QQ = P, Q
+    if TP is None:
+        P_to_TP = V(0)
+    else:
+        if TP is not None:
+            TPv = (TP[0]**g/TP[1]).valuation()
+            xTPv = TP[0].valuation()
+        else:
+            xTPv = TPv = +Infinity
+        if TQ is not None:
+            TQv = (TQ[0]**g/TQ[1]).valuation()
+            xTQv = TQ[0].valuation()
+        else:
+            xTQv = TQv = +Infinity
+        offset = (2*g-1)*max(TPv, TQv)
+        if offset == +Infinity:
+            offset = (2*g-1)*min(TPv,TQv)
+        if (offset > prec and (xTPv <0 or xTQv <0) and (H.residue_disc(P) == H.change_ring(GF(p))(0,1,0) or H.residue_disc(Q) == H.change_ring(GF(p))(0,1,0))):
+            newprec = offset + prec
+            K = pAdicField(p,newprec)
+            A = PolynomialRing(RationalField(),'x')
+            f = A(H.hyperelliptic_polynomials()[0])
+            from sage.schemes.hyperelliptic_curves.constructor import HyperellipticCurve
+            H = HyperellipticCurve(f).change_ring(K)
+            xP = P[0]
+            xPv = xP.valuation()
+            xPnew = K(sum(c * p**(xPv + i) for i, c in enumerate(xP.expansion())))
+            PP = P = H.lift_x(xPnew)
+            TP = H.frobenius(P)
+            xQ = Q[0]
+            xQv = xQ.valuation()
+            xQnew = K(sum(c * p**(xQv + i) for i, c in enumerate(xQ.expansion())))
+            QQ = Q = H.lift_x(xQnew)
+            TQ = H.frobenius(Q)
+            V = VectorSpace(K,dim)
+        P_to_TP = V(H.tiny_integrals_on_basis(P, TP))
+    if TQ is None:
+        TQ_to_Q = V(0)
+    else:
+        TQ_to_Q = V(H.tiny_integrals_on_basis(TQ, Q))
+    if PP is None:
+        L = [-f(QQ[0], QQ[1]) for f in forms]
+    elif QQ is None:
+        L = [f(PP[0], PP[1]) for f in forms]
+    else:
+        L = [f(PP[0], PP[1]) - f(QQ[0], QQ[1]) for f in forms]
+    b = V(L)
+    if PP is None:
+        b -= TQ_to_Q
+    elif QQ is None:
+        b -= P_to_TP
+    elif algorithm != 'teichmuller':
+        b -= P_to_TP + TQ_to_Q
+    TP_to_TQ = inverse_frob * b
+    if algorithm == 'teichmuller':
+        return P_to_TP + TP_to_TQ + TQ_to_Q
+    else:
+        return TP_to_TQ
+
+def ann_basis(C,P,p,prec,inverse_frob,forms):
     """
     Constructs the pullback {alpha, beta} on C
     of a basis for Ann(J(Q)). Here C is embedded
@@ -77,7 +180,7 @@ def ann_basis(C,P,p,prec):
     T = CK([0,1,0])
     diffs = [w,x*w,x^2*w]
     if P[1]%p != 0:
-        ints = [CK.coleman_integral(w,T,CK(P)), CK.coleman_integral(x*w,T,CK(P)), CK.coleman_integral(x^2*w,T,CK(P))]
+        ints = coleman_integrals_on_basis(CK, T, CK(P), inverse_frob, forms)
     else:
         Cp = C.change_ring(GF(p))
         Q = Cp(P)
@@ -169,7 +272,7 @@ def normalize_and_truncate(C,f,n,p):
             r = r + 1
     if r - r.valuation(p) < n:
         M = r + 1
-    assert M <= fp.precision_absolute, "Input power series precision is too low."
+    assert M <= fp.precision_absolute(), "Input power series precision is too low."
     return fp.truncate(M)
 
 
@@ -194,7 +297,9 @@ def power_series_zeros(C,f,n,p):
 
 ############## MAIN FUNCTION ###############
 
-def chabauty_test(C,p,P,L,prec,n):
+def chabauty_test(C,p,P,L,prec):
+
+    n = prec
 
     #Handle projective coordinates
     L0 = list(L)
@@ -242,10 +347,25 @@ def chabauty_test(C,p,P,L,prec,n):
 
     C._prec = prec
     K = pAdicField(p,prec)
+    J = Zp(p, prec = prec, type = 'fixed-mod', print_mode = 'series')
+    J2 = Zmod(p^prec)
+
+    #For coercion between J[['t']] and K[['t']] later
+    SK = K[['t']]
+    SK.set_default_prec(n+2)
+
     Cp = C.change_ring(GF(p))
     CK = C.change_ring(K)
+    CJ = C.change_ring(J)
+    CJ2 = C.change_ring(J2)
 
-    Basis = ann_basis(C,P,p,prec)
+    #Compute Frobenius data only once:
+    M_frob, forms = monsky_washnitzer.matrix_of_frobenius_hyperelliptic(CK)
+    forms = [form.change_ring(K) for form in forms]
+    M_sys = matrix(K, M_frob).transpose() - 1
+    inverse_frob = M_sys**(-1)
+    Basis = ann_basis(C,P,p,prec,inverse_frob,forms)
+
     alpha = Basis[0][1]
     beta = Basis[1][1]
     alphacoeffs = Basis[0][0]
@@ -268,6 +388,7 @@ def chabauty_test(C,p,P,L,prec,n):
                 i = i+1
             RatClasses[i].append(Q)
 
+
     RatClassesWithPoints0 = [[RatClassesModp[i],RatClasses[i]] for i in range(len(RatClasses))]
     ClassesToConsider = [Q for Q in list(Cp.points()) if ZZ(Q[1])<p/2]
     RatClassesWithPoints = list(RatClassesWithPoints0)
@@ -282,30 +403,51 @@ def chabauty_test(C,p,P,L,prec,n):
     ClassesToConsiderNotQ = [pt for pt in ClassesToConsider if pt not in RatClassesModp]
     ClassesNotToConsider = [pt for pt in RatClassesModp if pt not in ClassesToConsider]
 
+
     AllPowerSeries = []
     AllParametrisations = []
     for Q in ClassesToConsider:
         if Q in ClassesToConsiderQ and Q[1]!=0:
             i = RatClassesModp.index(Q)
             R = RatClasses[i][0]
-            xR,yR = CK.local_coord(R,prec=n+2)
+            if R == C(0,1,0):
+                xR,yR = CK.local_coord(R,prec = n+2)
+            elif R[1] == 0:
+                xR,yR = CJ.local_coord(CJ(R),prec=n+2)
+                xR = SK(xR)
+                yR = SK(yR)
+            else:
+                xR,yR = CJ2.local_coord(CJ2(R),prec=n+2)
+                xR = SK(xR)
+                yR = SK(yR)
             AllParametrisations.append([xR,yR])
             dx = xR.derivative()
-            alphaR = (alphacoeffs[0]+alphacoeffs[1]*xR+alphacoeffs[2]*xR^2)/(2*yR)*dx
-            betaR = (betacoeffs[0]+betacoeffs[1]*xR+betacoeffs[2]*xR^2)/(2*yR)*dx
+            basisR = vector([1,xR,xR^2])*dx/(2*yR)
+            alphaR = alphacoeffs*basisR
+            betaR = betacoeffs*basisR
             alphaRint = alphaR.integral()
             betaRint = betaR.integral()
         else:
             R = Q_lift(CK,Q,p)
-            xR,yR =  CK.local_coord(R,prec=n+2)
+            if R[1] == 0:
+                xR,yR = CJ.local_coord(CJ(R),prec=n+2)
+                xR = SK(xR)
+                yR = SK(yR)
+            else:
+                xR,yR = CJ2.local_coord(CJ2(R),prec=n+2)
+                xR = SK(xR)
+                yR = SK(yR)
             AllParametrisations.append([xR,yR])
             dx = xR.derivative()
-            alphaR = (alphacoeffs[0]+alphacoeffs[1]*xR+alphacoeffs[2]*xR^2)/(2*yR)*dx
-            betaR = (betacoeffs[0]+betacoeffs[1]*xR+betacoeffs[2]*xR^2)/(2*yR)*dx
+            basisR = vector([1,xR,xR^2])*dx/(2*yR)
+            alphaR = alphacoeffs*basisR
+            betaR = betacoeffs*basisR
             alphaRint = alphaR.integral()
             betaRint = betaR.integral()
-            alphaRint = alphaRint + CK.coleman_integral(alpha,CK(0,1,0), R)
-            betaRint = betaRint + CK.coleman_integral(beta,CK(0,1,0),R)
+            ints_on_basis = coleman_integrals_on_basis(CK,CK(0,1,0),R,inverse_frob, forms)
+            alphaRint = alphaRint + alphacoeffs*(ints_on_basis[0:3])
+            betaRint = betaRint + betacoeffs*(ints_on_basis[0:3])
+
         Series = []
         for f in [alphaRint,betaRint]:
             T.<t> = PowerSeriesRing(f[0].parent())
@@ -326,15 +468,17 @@ def chabauty_test(C,p,P,L,prec,n):
             tval_g = g.valuation()
             f = f/((f.parent().gen())^tval_f)
             g = g/((g.parent().gen())^tval_g)
-            assert f.truncate().discriminant() != 0 or g.truncate().discriminant() != 0, "Both power series have repeated roots."
-            if f.truncate().discriminant() != 0:
+            discriminant_f = f.truncate().discriminant()
+            if discriminant_f != 0:
                 f_p = normalize_and_truncate(C,f,n,p)
                 Zerosf = [x for x in power_series_zeros(C,f_p,n,p)]
-                CommonZeros = [x for x in Zerosf if g.truncate()(x) == 0]
+                CommonZeros = [x for x in Zerosf if g(K(sage_eval('%s'%x))) == 0]
             else:
+                discriminant_g = g.truncate().discriminant()
+                assert discriminant_g != 0, "Both power series have repeated roots."
                 g_p = normalize_and_truncate(C,g,n,p)
                 Zerosg = [x for x in power_series_zeros(C,g_p,n,p)]
-                CommonZeros = [x for x in Zerosg if f.truncate()(x) == 0]
+                CommonZeros = [x for x in Zerosf if g(K(sage_eval('%s'%x))) == 0]
             xh = AllParametrisations[i][0]
             yh = AllParametrisations[i][1]
             NewPoints.extend([CK(xh(K(sage_eval('%s'%t0))),yh(K(sage_eval('%s'%t0)))) for t0 in CommonZeros])
@@ -343,20 +487,21 @@ def chabauty_test(C,p,P,L,prec,n):
             tval_g = g.valuation()
             f = f/((f.parent().gen())^tval_f)
             g = g/((g.parent().gen())^tval_g)
-            assert f.truncate().discriminant() != 0 or g.truncate().discriminant() != 0, "Both power series have repeated roots."
-            if f.truncate().discriminant() != 0:
+            discriminant_f = f.truncate().discriminant()
+            if discriminant_f != 0:
                 f_p = normalize_and_truncate(C,f,n,p)
                 Zerosf = [x for x in power_series_zeros(C,f_p,n,p)]
-                CommonZeros = [x for x in Zerosf if g.truncate()(x) == 0]
+                CommonZeros = [x for x in Zerosf if g(K(sage_eval('%s'%x))) == 0]
             else:
+                discriminant_g = g.truncate().discriminant()
+                assert discriminant_g != 0, "Both power series have repeated roots."
                 g_p = normalize_and_truncate(C,g,n,p)
                 Zerosg = [x for x in power_series_zeros(C,g_p,n,p)]
-                CommonZeros = [x for x in Zerosg if f.truncate()(x) == 0]
+                CommonZeros = [x for x in Zerosf if g(K(sage_eval('%s'%x))) == 0]
             if tval_f > 0 and tval_g > 0:
                 CommonZeros.append(0)
             xh = AllParametrisations[i][0]
             yh = AllParametrisations[i][1]
-
             NewPoints.extend([CK(xh(K(sage_eval('%s'%t0))),yh(K(sage_eval('%s'%t0)))) for t0 in CommonZeros])
 
     lnew = len(NewPoints)
@@ -384,7 +529,7 @@ def chabauty_test(C,p,P,L,prec,n):
                     W = CK.find_char_zero_weier_point(A)
                     I0,I1,I2, _,_,_ = CK.tiny_integrals_on_basis(W, A)
             else:
-                I0,I1,I2, _,_,_ = CK.coleman_integrals_on_basis(T,A)
+                I0,I1,I2,_,_,_ = coleman_integrals_on_basis(CK,T,A,inverse_frob, forms)
                 if I0 == 0 and I1 == 0 and I2 == 0:
                     OtherTorsPoints.append(A)
                 else:
